@@ -8,7 +8,7 @@ PyAgent provides a modular, multi-package architecture for building AI coding ag
 
 ## Features
 
-- **Multi-provider LLM support** — OpenAI, Anthropic, Google Gemini, and local Ollama through a unified LangChain interface
+- **Multi-provider LLM support** — OpenAI, Anthropic, Google Gemini, DeepSeek, and local Ollama through a unified LangChain interface
 - **Tool-calling agent loop** — ReAct pattern powered by LangGraph StateGraph (Reason -> Act -> Observe -> loop)
 - **Three execution modes** — Interactive REPL, single-prompt pipe (for scripting), and RPC (remote server)
 - **Built-in tools** — File read/write/list, file existence check, and shell command execution
@@ -67,7 +67,7 @@ START -> call_model -> should_continue
 ## Requirements
 
 - **Python** >= 3.11
-- An API key for at least one LLM provider (OpenAI, Anthropic, or Google), or a local Ollama instance
+- An API key for at least one LLM provider (OpenAI, Anthropic, Google, or DeepSeek), or a local Ollama instance
 
 ## Installation
 
@@ -134,7 +134,8 @@ PyAgent reads configuration from CLI flags and environment variables. Environmen
 | `OPENAI_API_KEY` | — | OpenAI API key |
 | `ANTHROPIC_API_KEY` | — | Anthropic API key |
 | `GOOGLE_API_KEY` | — | Google Gemini API key |
-| `PYAGENT_MODEL_PROVIDER` | `openai` | Provider: `openai`, `anthropic`, `google`, `ollama`, `openai_compatible` |
+| `DEEPSEEK_API_KEY` | — | DeepSeek API key |
+| `PYAGENT_MODEL_PROVIDER` | `openai` | Provider: `openai`, `anthropic`, `google`, `ollama`, `openai_compatible`, `deepseek` |
 | `PYAGENT_MODEL_NAME` | `gpt-4o-mini` | Model name (e.g. `claude-3-5-sonnet-20241022`, `gemini-2.0-flash`) |
 | `PYAGENT_MODEL_TEMPERATURE` | `0.7` | Sampling temperature |
 | `PYAGENT_DB_PATH` | `.pyagent/sessions.db` | SQLite database path for session storage |
@@ -151,6 +152,9 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 # Google
 export GOOGLE_API_KEY="AIza..."
 
+# DeepSeek
+export DEEPSEEK_API_KEY="sk-..."
+
 # Or use a custom OpenAI-compatible endpoint
 export PYAGENT_MODEL_PROVIDER="openai_compatible"
 export PYAGENT_MODEL_NAME="your-model"
@@ -166,6 +170,7 @@ The model registry (`pyagent_ai.models.MODEL_REGISTRY`) includes metadata for co
 | OpenAI | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o1-mini` | 128K–200K |
 | Anthropic | `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`, `claude-3-opus-20240229` | 200K |
 | Google | `gemini-2.0-flash`, `gemini-1.5-pro` | 1M–2M |
+| DeepSeek | `deepseek-v4-flash`, `deepseek-v4-pro` | 1M |
 | Ollama | `llama3.2`, `qwen2.5` (local) | 32K–128K |
 
 ## Usage

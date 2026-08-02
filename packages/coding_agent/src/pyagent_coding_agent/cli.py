@@ -70,7 +70,10 @@ def main(
         None, "--model", "-m", help="Model name (e.g. gpt-4o-mini, claude-3-5-sonnet)."
     ),
     provider: Optional[str] = typer.Option(
-        None, "--provider", "-p", help="LLM provider (openai/anthropic/google/ollama)."
+        None,
+        "--provider",
+        "-p",
+        help="LLM provider (openai/anthropic/google/ollama/openai_compatible/deepseek).",
     ),
     temperature: float = typer.Option(
         0.7, "--temperature", "-t", help="Sampling temperature."

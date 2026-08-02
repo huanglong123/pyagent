@@ -24,6 +24,7 @@ class ProviderType(str, Enum):
     GOOGLE = "google"
     OLLAMA = "ollama"
     OPENAI_COMPATIBLE = "openai_compatible"
+    DEEPSEEK = "deepseek"
 
 
 class ProviderConfig(BaseModel):
@@ -37,6 +38,8 @@ class ProviderConfig(BaseModel):
         api_key: API key. If None, reads from environment.
         base_url: Custom base URL for OpenAI-compatible providers.
         streaming: Whether to enable streaming.
+        reasoning_effort: Optional reasoning effort for thinking-capable models
+            (e.g. DeepSeek "high"/"medium"/"low"). When set, enables thinking mode.
     """
 
     provider: ProviderType = ProviderType.OPENAI
@@ -46,6 +49,7 @@ class ProviderConfig(BaseModel):
     api_key: str | None = None
     base_url: str | None = None
     streaming: bool = True
+    reasoning_effort: str | None = None
 
     def resolve_api_key(self) -> str | None:
         """Resolve the API key from config or environment."""
@@ -57,6 +61,7 @@ class ProviderConfig(BaseModel):
             ProviderType.GOOGLE: "GOOGLE_API_KEY",
             ProviderType.OPENAI_COMPATIBLE: "OPENAI_API_KEY",
             ProviderType.OLLAMA: None,
+            ProviderType.DEEPSEEK: "DEEPSEEK_API_KEY",
         }
         env_var = env_map.get(self.provider)
         if env_var:
@@ -143,6 +148,27 @@ def get_chat_model(config: ProviderConfig | None = None) -> Any:
             streaming=config.streaming,
             **common_kwargs,
         )
+
+    elif config.provider == ProviderType.DEEPSEEK:
+        from langchain_openai import ChatOpenAI
+
+        # DeepSeek exposes an OpenAI-compatible API.
+        # Docs: https://api-docs.deepseek.com/zh-cn/
+        deepseek_kwargs: dict[str, Any] = {
+            "model": config.model,
+            "api_key": api_key,
+            "base_url": config.base_url or "https://api.deepseek.com",
+            "streaming": config.streaming,
+            **common_kwargs,
+        }
+        # deepseek-v4-flash supports an optional thinking mode controlled via
+        # `thinking` and `reasoning_effort` extra body params.
+        if config.reasoning_effort:
+            deepseek_kwargs["extra_body"] = {
+                "thinking": {"type": "enabled"},
+                "reasoning_effort": config.reasoning_effort,
+            }
+        return ChatOpenAI(**deepseek_kwargs)
 
     else:
         raise ValueError(f"Unknown provider: {config.provider}")

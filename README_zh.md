@@ -8,7 +8,7 @@ PyAgent 提供模块化的多包架构来构建 AI 编程 Agent。它支持多�
 
 ## 特性
 
-- **多 LLM 提供商支持** — 通过统一的 LangChain 接口接入 OpenAI、Anthropic、Google Gemini 和本地 Ollama
+- **多 LLM 提供商支持** — 通过统一的 LangChain 接口支持 OpenAI、Anthropic、Google Gemini、DeepSeek 与本地 Ollama
 - **工具调用 Agent 循环** — 基于 LangGraph StateGraph 实现 ReAct 模式（推理 -> 行动 -> 观察 -> 循环）
 - **三种执行模式** — 交互式 REPL、单次提示管道（适合脚本化）、RPC（远程服务器）
 - **内置工具** — 文件读写/列表、文件存在检查、Shell 命令执行
@@ -67,7 +67,7 @@ START -> call_model -> should_continue
 ## 环境要求
 
 - **Python** >= 3.11
-- 至少一个 LLM 提供商的 API Key（OpenAI、Anthropic 或 Google），或本地 Ollama 实例
+- 至少一个 LLM 提供商的 API Key（OpenAI、Anthropic、Google 或 DeepSeek），或本地 Ollama 实例
 
 ## 安装
 
@@ -134,7 +134,8 @@ PyAgent 从 CLI 参数和环境变量读取配置。环境变量作为默认值�
 | `OPENAI_API_KEY` | — | OpenAI API Key |
 | `ANTHROPIC_API_KEY` | — | Anthropic API Key |
 | `GOOGLE_API_KEY` | — | Google Gemini API Key |
-| `PYAGENT_MODEL_PROVIDER` | `openai` | 提供商：`openai`、`anthropic`、`google`、`ollama`、`openai_compatible` |
+| `DEEPSEEK_API_KEY` | — | DeepSeek API Key |
+| `PYAGENT_MODEL_PROVIDER` | `openai` | 提供商：`openai`、`anthropic`、`google`、`ollama`、`openai_compatible`、`deepseek` |
 | `PYAGENT_MODEL_NAME` | `gpt-4o-mini` | 模型名称（如 `claude-3-5-sonnet-20241022`、`gemini-2.0-flash`） |
 | `PYAGENT_MODEL_TEMPERATURE` | `0.7` | 采样温度 |
 | `PYAGENT_DB_PATH` | `.pyagent/sessions.db` | 会话存储的 SQLite 数据库路径 |
@@ -151,6 +152,9 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 # Google
 export GOOGLE_API_KEY="AIza..."
 
+# DeepSeek
+export DEEPSEEK_API_KEY="sk-..."
+
 # 或使用自定义 OpenAI 兼容端点
 export PYAGENT_MODEL_PROVIDER="openai_compatible"
 export PYAGENT_MODEL_NAME="your-model"
@@ -166,6 +170,7 @@ export PYAGENT_MODEL_NAME="your-model"
 | OpenAI | `gpt-4o`、`gpt-4o-mini`、`gpt-4-turbo`、`o1`、`o1-mini` | 128K–200K |
 | Anthropic | `claude-3-5-sonnet-20241022`、`claude-3-5-haiku-20241022`、`claude-3-opus-20240229` | 200K |
 | Google | `gemini-2.0-flash`、`gemini-1.5-pro` | 1M–2M |
+| DeepSeek | `deepseek-v4-flash`、`deepseek-v4-pro` | 1M |
 | Ollama | `llama3.2`、`qwen2.5`（本地） | 32K–128K |
 
 ## 使用示例

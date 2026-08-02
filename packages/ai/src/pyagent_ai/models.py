@@ -103,6 +103,19 @@ MODEL_REGISTRY: dict[str, ModelInfo] = {
         context_window=32768,
         description="Qwen 2.5 via Ollama (local)",
     ),
+    # DeepSeek
+    "deepseek-v4-flash": ModelInfo(
+        name="deepseek-v4-flash",
+        provider="deepseek",
+        context_window=1000000,
+        description="DeepSeek V4 Flash - fast, supports thinking mode",
+    ),
+    "deepseek-v4-pro": ModelInfo(
+        name="deepseek-v4-pro",
+        provider="deepseek",
+        context_window=1000000,
+        description="DeepSeek V4 Pro - most capable",
+    ),
 }
 
 
