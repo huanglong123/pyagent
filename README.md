@@ -75,7 +75,7 @@ START -> call_model -> should_continue
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/pyagent.git
+git clone https://github.com/huanglong123/pyagent.git
 cd pyagent
 
 # 2. Create and activate a virtual environment

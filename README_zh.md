@@ -75,7 +75,7 @@ START -> call_model -> should_continue
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/your-org/pyagent.git
+git clone https://github.com/huanglong123/pyagent.git
 cd pyagent
 
 # 2. 创建并激活虚拟环境
