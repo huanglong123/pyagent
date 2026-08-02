@@ -19,11 +19,17 @@ from typing import Any
 from fastapi import FastAPI
 from rich import print as rprint
 
-from pyagent_ai import ProviderConfig, ProviderType, get_chat_model
+from pyagent_ai import ProviderConfig, ProviderType, get_chat_model, load_env
 from pyagent_agent import AgentSession, ToolRegistry
 from pyagent_coding_agent.tools.file_ops import register_file_tools
 from pyagent_coding_agent.tools.shell import register_shell_tools
 from pyagent_protocol import SessionRequest, SessionResponse, Message, SessionEvent, SessionEventType
+
+# Load configuration from a .env file (if present) before any request handler
+# reads config. Real environment variables always take precedence over .env.
+# Runs once at import time, so it applies regardless of how the app is started
+# (e.g. `uvicorn pyagent_server.app:app`).
+load_env()
 
 app = FastAPI(
     title="PyAgent Server",

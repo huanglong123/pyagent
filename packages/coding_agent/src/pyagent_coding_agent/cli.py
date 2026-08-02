@@ -26,7 +26,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
 
-from pyagent_ai import ProviderConfig, ProviderType
+from pyagent_ai import ProviderConfig, ProviderType, load_env
 from pyagent_coding_agent.modes import run_pipe_mode, run_interactive_mode, run_rpc_mode
 
 app = typer.Typer(
@@ -89,6 +89,10 @@ def main(
     ),
 ) -> None:
     """Run the PyAgent coding agent."""
+
+    # Load configuration from a .env file (if present) before reading any
+    # config. Real environment variables always take precedence over .env.
+    load_env()
 
     # Show banner
     console.print(

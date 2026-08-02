@@ -125,7 +125,15 @@ pyagent --help
 
 ## 配置
 
-PyAgent 从 CLI 参数和环境变量读取配置。环境变量作为默认值，CLI 参数会覆盖环境变量。
+PyAgent 按以下优先级从高到低读取配置：
+
+1. **CLI 参数**（最高）——覆盖其他所有来源。
+2. **真实环境变量**——通过 `export` 在 shell 中设置。
+3. **`.env` 文件**——启动时自动加载（见下文）。
+4. **内置默认值**（最低）——如 `gpt-4o-mini`、温度 `0.7`。
+
+如果某个变量已在环境中设置，则**不会**使用 `.env` 文件中的值——真实环境变量始终优先。
+这样你可以在 `.env` 中保留合理的默认值，同时从 shell 或 CI 覆盖单个配置，而无需修改文件。
 
 ### 环境变量
 
@@ -160,6 +168,31 @@ export PYAGENT_MODEL_PROVIDER="openai_compatible"
 export PYAGENT_MODEL_NAME="your-model"
 # 通过 CLI 传 --provider openai_compatible --base-url http://localhost:8000/v1
 ```
+
+### 使用 `.env` 文件
+
+如果不想在每个 shell 里都 export 变量，可以把它们放在项目根目录的 `.env` 文件中。PyAgent 会在启动时自动加载（通过 `pyagent_ai.load_env()`，基于 [python-dotenv](https://github.com/theskumar/python-dotenv)），所有基于环境变量的配置读取都会拿到这些值。
+
+```bash
+# 复制模板并填入你的值
+cp .env.example .env
+```
+
+```dotenv
+# .env
+DEEPSEEK_API_KEY=sk-...
+PYAGENT_MODEL_PROVIDER=deepseek
+PYAGENT_MODEL_NAME=deepseek-v4-flash
+PYAGENT_MODEL_TEMPERATURE=0.7
+PYAGENT_DB_PATH=.pyagent/sessions.db
+```
+
+说明：
+
+- `.env` 文件已被 git 忽略——切勿提交真实密钥。`.env.example` 是带有空值的模板。
+- `load_env()` 会从当前目录向上搜索 `.env`，因此在项目子目录中运行 PyAgent 也能生效。
+- 真实环境变量始终优先于 `.env` 中的值，可从 shell 覆盖单个配置而无需修改文件。
+- CLI（`pyagent` 命令）和服务器（`pyagent_server.app`）都会自动加载 `.env`；若将 PyAgent 嵌入其他应用，请在读取任何配置前调用一次 `pyagent_ai.load_env()`。
 
 ### 支持的模型
 

@@ -125,7 +125,17 @@ pyagent --help
 
 ## Configuration
 
-PyAgent reads configuration from CLI flags and environment variables. Environment variables serve as defaults; CLI flags override them.
+PyAgent reads configuration from three sources, in order of decreasing precedence:
+
+1. **CLI flags** (highest) — override everything else.
+2. **Real environment variables** — set in the shell via `export`.
+3. **`.env` file** — loaded automatically at startup (see below).
+4. **Built-in defaults** (lowest) — e.g. `gpt-4o-mini`, temperature `0.7`.
+
+If a variable is already set in the environment, the value in the `.env` file
+is **not** used — real environment variables always win. This lets you keep
+sensible defaults in `.env` while overriding individual values from the shell
+or CI without editing the file.
 
 ### Environment variables
 
@@ -160,6 +170,39 @@ export PYAGENT_MODEL_PROVIDER="openai_compatible"
 export PYAGENT_MODEL_NAME="your-model"
 # Pass --provider openai_compatible --base-url http://localhost:8000/v1 via CLI
 ```
+
+### Using a `.env` file
+
+Instead of exporting variables in every shell, put them in a `.env` file at the
+project root. PyAgent loads it automatically at startup (via
+`pyagent_ai.load_env()`, powered by [python-dotenv](https://github.com/theskumar/python-dotenv)),
+so the values become available to every environment-variable-based config reader.
+
+```bash
+# Copy the template and fill in your values
+cp .env.example .env
+```
+
+```dotenv
+# .env
+DEEPSEEK_API_KEY=sk-...
+PYAGENT_MODEL_PROVIDER=deepseek
+PYAGENT_MODEL_NAME=deepseek-v4-flash
+PYAGENT_MODEL_TEMPERATURE=0.7
+PYAGENT_DB_PATH=.pyagent/sessions.db
+```
+
+Notes:
+
+- The `.env` file is git-ignored — never commit real secrets. `.env.example`
+  ships as a template with empty values.
+- `load_env()` searches from the current directory upward, so it works when
+  you run PyAgent from a project subdirectory.
+- Real environment variables always take precedence over `.env` values, so you
+  can override a single setting from the shell without editing the file.
+- The CLI (`pyagent` command) and the server (`pyagent_server.app`) both load
+  `.env` automatically; if you embed PyAgent in another application, call
+  `pyagent_ai.load_env()` once at startup before reading any config.
 
 ### Supported models
 
