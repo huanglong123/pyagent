@@ -16,6 +16,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from typing import Optional
@@ -26,7 +27,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
 
-from pyagent_ai import ProviderConfig, ProviderType, load_env
+from pyagent_ai import ProviderConfig, ProviderType, load_env, setup_error_logging
 from pyagent_coding_agent.modes import run_pipe_mode, run_interactive_mode, run_rpc_mode
 
 app = typer.Typer(
@@ -36,6 +37,30 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
+logger = logging.getLogger(__name__)
+
+# Preserve the original excepthook so a custom hook can delegate back to it
+# after recording the crash, keeping the normal terminal traceback intact.
+_default_excepthook = sys.excepthook
+
+
+def _pyagent_excepthook(exc_type, exc_value, exc_tb) -> None:
+    """Log uncaught exceptions to the error log file, then defer to default."""
+    # KeyboardInterrupt is a normal exit path, not an error worth logging.
+    if issubclass(exc_type, KeyboardInterrupt):
+        _default_excepthook(exc_type, exc_value, exc_tb)
+        return
+    logger.critical(
+        "Uncaught exception during CLI execution",
+        exc_info=(exc_type, exc_value, exc_tb),
+    )
+    _default_excepthook(exc_type, exc_value, exc_tb)
+
+
+def _install_excepthook() -> None:
+    """Install the pyagent excepthook (idempotent)."""
+    if sys.excepthook is not _pyagent_excepthook:
+        sys.excepthook = _pyagent_excepthook
 
 
 def _build_config(
@@ -93,6 +118,13 @@ def main(
     # Load configuration from a .env file (if present) before reading any
     # config. Real environment variables always take precedence over .env.
     load_env()
+
+    # Set up runtime error logging to a rotating file (path/level configurable
+    # via PYAGENT_ERROR_LOG_PATH / PYAGENT_ERROR_LOG_LEVEL). Done right after
+    # load_env() so the env vars are visible. Then install a global excepthook
+    # as a safety net for any crash not caught by the mode handlers.
+    setup_error_logging()
+    _install_excepthook()
 
     # Show banner
     console.print(

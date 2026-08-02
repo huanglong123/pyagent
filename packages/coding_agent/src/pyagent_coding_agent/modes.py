@@ -12,6 +12,7 @@ the same three execution modes.
 
 from __future__ import annotations
 
+import logging
 import sys
 from typing import Any
 
@@ -25,6 +26,8 @@ from pyagent_ai import ProviderConfig
 from pyagent_agent import AgentSession, ToolRegistry
 from pyagent_coding_agent.tools.file_ops import register_file_tools
 from pyagent_coding_agent.tools.shell import register_shell_tools
+
+logger = logging.getLogger(__name__)
 
 
 def _create_session(
@@ -64,21 +67,28 @@ def run_pipe_mode(
     """
     session = _create_session(config, system_prompt, tools_enabled, max_iterations)
 
-    # Stream the agent, showing tool calls on stderr
-    for node_name, state_delta in session.stream(prompt):
-        if node_name == "execute_tools":
-            tool_results = state_delta.get("tool_results", [])
-            for tr in tool_results:
-                console.print(f"[dim][tool] {tr[:200]}...[/]", style="dim")
+    try:
+        # Stream the agent, showing tool calls on stderr
+        for node_name, state_delta in session.stream(prompt):
+            if node_name == "execute_tools":
+                tool_results = state_delta.get("tool_results", [])
+                for tr in tool_results:
+                    console.print(f"[dim][tool] {tr[:200]}...[/]", style="dim")
 
-    # Get the final response from history
-    history = session.get_history()
-    for msg in reversed(history):
-        if msg.role.value == "assistant" and msg.content:
-            console.print(msg.content)
-            return
+        # Get the final response from history
+        history = session.get_history()
+        for msg in reversed(history):
+            if msg.role.value == "assistant" and msg.content:
+                console.print(msg.content)
+                return
 
-    console.print("No response generated.", style="red")
+        console.print("No response generated.", style="red")
+    except Exception as e:
+        # Persist the full traceback to the error log, then surface a short
+        # message on stderr and exit non-zero so scripts can detect failure.
+        logger.exception("Pipe mode failed")
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def run_interactive_mode(
@@ -138,6 +148,8 @@ def run_interactive_mode(
             console.print()
             console.print(Panel(Markdown(response), title="[bold blue]assistant[/]", border_style="blue"))
         except Exception as e:
+            # Persist the full traceback to the error log; the REPL keeps running.
+            logger.exception("Interactive turn failed")
             console.print(f"[red]Error: {e}[/]")
         console.print()
 
@@ -164,13 +176,17 @@ def run_rpc_mode(
     session = RemoteSession(server_url)
 
     if prompt:
-        response = session.send_prompt(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            model=model,
-            provider=provider,
-        )
-        console.print(Panel(Markdown(response), title="[bold blue]assistant[/]", border_style="blue"))
+        try:
+            response = session.send_prompt(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                model=model,
+                provider=provider,
+            )
+            console.print(Panel(Markdown(response), title="[bold blue]assistant[/]", border_style="blue"))
+        except Exception as e:
+            logger.exception("RPC single-prompt failed")
+            console.print(f"[red]Error: {e}[/]")
     else:
         console.print("[dim]RPC interactive mode. Type /exit to quit.[/]")
         while True:
@@ -182,12 +198,18 @@ def run_rpc_mode(
                 continue
             if user_input.strip().lower() in ("/exit", "/quit"):
                 break
-            response = session.send_prompt(
-                prompt=user_input,
-                system_prompt=system_prompt,
-                model=model,
-                provider=provider,
-            )
-            console.print()
-            console.print(Panel(Markdown(response), title="[bold blue]assistant[/]", border_style="blue"))
-            console.print()
+            try:
+                response = session.send_prompt(
+                    prompt=user_input,
+                    system_prompt=system_prompt,
+                    model=model,
+                    provider=provider,
+                )
+                console.print()
+                console.print(Panel(Markdown(response), title="[bold blue]assistant[/]", border_style="blue"))
+                console.print()
+            except Exception as e:
+                # Log and keep the loop alive so a transient network error
+                # does not kill the RPC session.
+                logger.exception("RPC turn failed")
+                console.print(f"[red]Error: {e}[/]")

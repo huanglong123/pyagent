@@ -11,6 +11,7 @@ to validate agent behavior across scenarios.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -19,6 +20,8 @@ from rich.table import Table
 
 from pyagent_ai import ProviderConfig
 from pyagent_agent import AgentSession
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -107,6 +110,8 @@ class EvalRunner:
                     )
                 )
             except Exception as e:
+                # Persist the full traceback to the error log file.
+                logger.exception("Eval case '%s' failed", case.name)
                 elapsed = (time.time() - start) * 1000
                 results.append(
                     EvalResult(

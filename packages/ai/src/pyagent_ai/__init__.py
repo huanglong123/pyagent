@@ -14,6 +14,7 @@ from pyagent_ai.providers import (
 from pyagent_ai.models import MODEL_REGISTRY, get_model_info
 from pyagent_ai.streaming import StreamChunk, StreamHandler
 from pyagent_ai.env import load_env
+from pyagent_ai.logging_config import setup_error_logging
 
 __all__ = [
     "ProviderType",
@@ -25,4 +26,5 @@ __all__ = [
     "StreamChunk",
     "StreamHandler",
     "load_env",
+    "setup_error_logging",
 ]

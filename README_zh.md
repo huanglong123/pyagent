@@ -17,6 +17,7 @@ PyAgent 提供模块化的多包架构来构建 AI 编程 Agent。它支持多�
 - **持久化存储** — 基于 SQLModel + SQLite 的会话存储
 - **评估框架** — 结构化测试用例，支持断言函数和富文本报告输出
 - **CBOR 序列化** — 紧凑二进制协议，支持 JSON 回退
+- **运行错误日志** — 运行时错误（含完整 traceback）自动写入轮转错误日志文件
 
 ## 架构
 
@@ -147,6 +148,8 @@ PyAgent 按以下优先级从高到低读取配置：
 | `PYAGENT_MODEL_NAME` | `gpt-4o-mini` | 模型名称（如 `claude-3-5-sonnet-20241022`、`gemini-2.0-flash`） |
 | `PYAGENT_MODEL_TEMPERATURE` | `0.7` | 采样温度 |
 | `PYAGENT_DB_PATH` | `.pyagent/sessions.db` | 会话存储的 SQLite 数据库路径 |
+| `PYAGENT_ERROR_LOG_PATH` | `.pyagent/error.log` | 运行错误日志文件路径（按大小轮转） |
+| `PYAGENT_ERROR_LOG_LEVEL` | `ERROR` | 写入错误日志的最低级别（如 `ERROR`、`WARNING`） |
 
 ### 设置 API Key
 
@@ -185,6 +188,8 @@ PYAGENT_MODEL_PROVIDER=deepseek
 PYAGENT_MODEL_NAME=deepseek-v4-flash
 PYAGENT_MODEL_TEMPERATURE=0.7
 PYAGENT_DB_PATH=.pyagent/sessions.db
+PYAGENT_ERROR_LOG_PATH=.pyagent/error.log
+PYAGENT_ERROR_LOG_LEVEL=ERROR
 ```
 
 说明：
@@ -193,6 +198,19 @@ PYAGENT_DB_PATH=.pyagent/sessions.db
 - `load_env()` 会从当前目录向上搜索 `.env`，因此在项目子目录中运行 PyAgent 也能生效。
 - 真实环境变量始终优先于 `.env` 中的值，可从 shell 覆盖单个配置而无需修改文件。
 - CLI（`pyagent` 命令）和服务器（`pyagent_server.app`）都会自动加载 `.env`；若将 PyAgent 嵌入其他应用，请在读取任何配置前调用一次 `pyagent_ai.load_env()`。
+
+### 错误日志
+
+PyAgent 会把运行时错误（LLM API 失败、工具执行异常、网络错误、启动期崩溃——均含完整 traceback）持久化到一个按大小轮转的日志文件中，便于事后排查。CLI 与服务器在启动时通过 `pyagent_ai.setup_error_logging()` 自动启用；TUI 在构造应用时启用。若将 PyAgent 嵌入其他应用，请在启动时调用一次 `setup_error_logging()` 以获得相同行为。
+
+```bash
+# 默认位置（相对于当前工作目录）：
+.pyagent/error.log          # 当前日志
+.pyagent/error.log.1        # 最近一次轮转
+.pyagent/error.log.2        # 更早的轮转
+```
+
+日志采用按大小轮转的 handler：每个文件增长到约 5 MB 后轮转，最多保留 3 个备份（错误日志总量大约限制在 20 MB 以内）。可通过上面的环境变量覆盖位置与级别，例如 `PYAGENT_ERROR_LOG_PATH=logs/pyagent.err`。`.gitignore` 已排除 `*.log`，错误日志不会被意外提交。
 
 ### 支持的模型
 

@@ -13,6 +13,7 @@ agent interface in the terminal.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from textual.app import App, ComposeResult
@@ -27,10 +28,12 @@ from textual.widgets import (
 from textual.reactive import reactive
 from rich.markdown import Markdown
 
-from pyagent_ai import ProviderConfig, ProviderType
+from pyagent_ai import ProviderConfig, ProviderType, setup_error_logging
 from pyagent_agent import AgentSession, ToolRegistry
 from pyagent_coding_agent.tools.file_ops import register_file_tools
 from pyagent_coding_agent.tools.shell import register_shell_tools
+
+logger = logging.getLogger(__name__)
 
 
 class AgentApp(App):
@@ -65,6 +68,8 @@ class AgentApp(App):
 
     def __init__(self, config: ProviderConfig | None = None) -> None:
         super().__init__()
+        # Set up runtime error logging once per TUI process (idempotent).
+        setup_error_logging()
         self.config = config or ProviderConfig()
         self.model_name = self.config.model
         self.provider_name = self.config.provider.value
@@ -136,4 +141,6 @@ class AgentApp(App):
             log.write(Markdown(response))
             log.write("")
         except Exception as e:
+            # Persist the full traceback to the error log file.
+            logger.exception("TUI turn failed")
             log.write(f"[red]Error: {e}[/]")

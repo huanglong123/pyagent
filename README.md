@@ -17,6 +17,7 @@ PyAgent provides a modular, multi-package architecture for building AI coding ag
 - **Persistent storage** — SQLite-backed session store via SQLModel
 - **Evaluation framework** — Structured eval cases with assertions and rich report output
 - **CBOR serialization** — Compact binary protocol with JSON fallback
+- **Error logging** — Runtime errors (with full tracebacks) are automatically written to a rotating error log file
 
 ## Architecture
 
@@ -149,6 +150,8 @@ or CI without editing the file.
 | `PYAGENT_MODEL_NAME` | `gpt-4o-mini` | Model name (e.g. `claude-3-5-sonnet-20241022`, `gemini-2.0-flash`) |
 | `PYAGENT_MODEL_TEMPERATURE` | `0.7` | Sampling temperature |
 | `PYAGENT_DB_PATH` | `.pyagent/sessions.db` | SQLite database path for session storage |
+| `PYAGENT_ERROR_LOG_PATH` | `.pyagent/error.log` | Path to the runtime error log file (rotated) |
+| `PYAGENT_ERROR_LOG_LEVEL` | `ERROR` | Minimum log level written to the error log (e.g. `ERROR`, `WARNING`) |
 
 ### Setting your API key
 
@@ -190,6 +193,8 @@ PYAGENT_MODEL_PROVIDER=deepseek
 PYAGENT_MODEL_NAME=deepseek-v4-flash
 PYAGENT_MODEL_TEMPERATURE=0.7
 PYAGENT_DB_PATH=.pyagent/sessions.db
+PYAGENT_ERROR_LOG_PATH=.pyagent/error.log
+PYAGENT_ERROR_LOG_LEVEL=ERROR
 ```
 
 Notes:
@@ -203,6 +208,28 @@ Notes:
 - The CLI (`pyagent` command) and the server (`pyagent_server.app`) both load
   `.env` automatically; if you embed PyAgent in another application, call
   `pyagent_ai.load_env()` once at startup before reading any config.
+
+### Error logging
+
+PyAgent persists runtime errors (LLM API failures, tool exceptions, network
+errors, startup crashes — all with full tracebacks) to a rotating log file so
+they can be diagnosed after the fact. The CLI and the server enable this
+automatically at startup via `pyagent_ai.setup_error_logging()`; the TUI enables
+it when the app is constructed. If you embed PyAgent in another application,
+call `setup_error_logging()` once at startup to get the same behaviour.
+
+```bash
+# Default location (relative to the current working directory):
+.pyagent/error.log          # current log
+.pyagent/error.log.1        # most recent rotation
+.pyagent/error.log.2        # older rotation
+```
+
+The log uses a size-based rotating handler: each file grows up to ~5 MB, then
+is rotated, with up to 3 backups kept (so the error log is bounded to roughly
+20 MB on disk). Override the location and level with the environment variables
+above, e.g. `PYAGENT_ERROR_LOG_PATH=logs/pyagent.err`. The `.gitignore` already
+excludes `*.log`, so error logs are never committed accidentally.
 
 ### Supported models
 
