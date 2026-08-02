@@ -66,10 +66,18 @@ def call_model(state: AgentState) -> dict[str, Any]:
         tool_calls = []
         if hasattr(response, "tool_calls") and response.tool_calls:
             for tc in response.tool_calls:
+                # Use langchain's native ToolCall shape ({"type", "name", "args",
+                # "id"}). The "args" key (not "arguments") is required: when this
+                # assistant message is fed back into model.invoke() on the next
+                # loop iteration, langchain rebuilds the AIMessage via
+                # create_tool_call(**tc), which only accepts name/args/id and
+                # raises "tool_call() got an unexpected keyword argument
+                # 'arguments'" if the OpenAI-style "arguments" key is used.
                 tool_calls.append({
+                    "type": "tool_call",
                     "id": tc.get("id", ""),
                     "name": tc.get("name", ""),
-                    "arguments": tc.get("args", {}),
+                    "args": tc.get("args", {}),
                 })
         msg_dict: dict[str, Any] = {"role": "assistant", "content": content}
         if tool_calls:
@@ -125,7 +133,9 @@ def execute_tools(state: AgentState) -> dict[str, Any]:
     tool_results = []
     for tc in tool_calls:
         tool_name = tc.get("name", "")
-        tool_args = tc.get("arguments", {})
+        # Read the langchain-native "args" key (falls back to "arguments" for
+        # any externally-produced tool calls that still use the OpenAI shape).
+        tool_args = tc.get("args", tc.get("arguments", {}))
         tool_call_id = tc.get("id", "")
 
         logger.info("Executing tool: %s with args: %s", tool_name, tool_args)
