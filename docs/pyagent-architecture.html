@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PyAgent Architecture Design Document</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --surface: #f8f8f6;
+  --border: #e0ddd3;
+  --text: #2c2c2a;
+  --text-secondary: #5f5e5a;
+  --text-tertiary: #888780;
+  --purple: #534ab7;
+  --teal: #0f6e56;
+  --blue: #185fa5;
+  --amber: #854f0b;
+  --coral: #993c1d;
+  --code-bg: #f5f3ee;
+  --mono: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--sans); line-height: 1.6; color: var(--text); background: var(--bg); max-width: 920px; margin: 0 auto; padding: 40px 24px; }
+h1 { font-size: 28px; font-weight: 600; margin-bottom: 8px; }
+h2 { font-size: 22px; font-weight: 600; margin-top: 40px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+h3 { font-size: 17px; font-weight: 500; margin-top: 24px; margin-bottom: 8px; color: var(--text-secondary); }
+p { margin-bottom: 12px; font-size: 15px; color: var(--text); }
+code { font-family: var(--mono); font-size: 13px; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+pre { background: var(--code-bg); padding: 16px; border-radius: 8px; overflow-x: auto; margin: 12px 0; border: 1px solid var(--border); }
+pre code { background: none; padding: 0; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+th { background: var(--surface); font-weight: 500; }
+tr:nth-child(even) td { background: var(--surface); }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+.badge-purple { background: #eeedfe; color: var(--purple); }
+.badge-teal { background: #e1f5ee; color: var(--teal); }
+.badge-blue { background: #e6f1fb; color: var(--blue); }
+.badge-amber { background: #faeeda; color: var(--amber); }
+.badge-coral { background: #faece7; color: var(--coral); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 16px 0; }
+.flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+.flow-step { background: #faece7; border: 1px solid var(--coral); border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 500; color: var(--coral); }
+.flow-arrow { color: var(--text-tertiary); font-size: 18px; }
+.meta { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
+.meta-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; }
+.meta-item strong { display: block; font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px; text-transform: uppercase; }
+.meta-item span { font-size: 15px; font-weight: 500; }
+.toc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 28px; margin: 24px 0; }
+.toc h3 { margin-top: 0; }
+.toc ol { margin-left: 20px; }
+.toc li { margin-bottom: 4px; font-size: 14px; }
+.toc a { color: var(--blue); text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+.header-meta { display: flex; gap: 16px; margin-bottom: 24px; font-size: 13px; color: var(--text-tertiary); }
+.header-meta span { display: flex; align-items: center; gap: 4px; }
+</style>
+</head>
+<body>
+
+<h1>PyAgent Architecture Design Document</h1>
+<div class="header-meta">
+  <span>Version: 0.1.0</span>
+  <span>|</span>
+  <span>Python 3.11+</span>
+  <span>|</span>
+  <span>LangGraph + LangChain</span>
+  <span>|</span>
+  <span>Inspired by pi-mono</span>
+</div>
+
+<div class="toc">
+<h3>Table of contents</h3>
+<ol>
+  <li><a href="#overview">Project overview</a></li>
+  <li><a href="#layered-arch">Layered architecture</a></li>
+  <li><a href="#package-mapping">pi-mono to Python mapping</a></li>
+  <li><a href="#foundation">Foundation layer packages</a></li>
+  <li><a href="#runtime">Runtime layer packages</a></li>
+  <li><a href="#application">Application layer packages</a></li>
+  <li><a href="#infrastructure">Infrastructure layer packages</a></li>
+  <li><a href="#data-flow">Agent data flow</a></li>
+  <li><a href="#design-patterns">Design patterns</a></li>
+  <li><a href="#tech-stack">Technology stack</a></li>
+  <li><a href="#quickstart">Quick start</a></li>
+</ol>
+</div>
+
+<h2 id="overview">1. Project overview</h2>
+<p>
+PyAgent is a Python AI coding agent harness built with <strong>LangGraph</strong> and <strong>LangChain</strong>,
+designed by referencing the architecture of <a href="https://github.com/earendil-works/pi-mono">pi-mono</a> (a TypeScript monorepo).
+It uses a 4-layer architecture with 9 packages, providing a unified LLM provider abstraction,
+a stateful agent loop with tool-calling, multiple CLI modes, a terminal UI, and a client-server system for remote sessions.
+</p>
+
+<div class="meta">
+  <div class="meta-item"><strong>Packages</strong><span>9 Python packages</span></div>
+  <div class="meta-item"><strong>Architecture</strong><span>4-layer layered design</span></div>
+  <div class="meta-item"><strong>Agent runtime</strong><span>LangGraph StateGraph</span></div>
+  <div class="meta-item"><strong>LLM abstraction</strong><span>LangChain providers</span></div>
+  <div class="meta-item"><strong>CLI modes</strong><span>Interactive / Pipe / RPC</span></div>
+  <div class="meta-item"><strong>Storage</strong><span>SQLModel + SQLite</span></div>
+</div>
+
+<h2 id="layered-arch">2. Layered architecture</h2>
+<p>
+The project follows pi-mono's 4-layer separation. Each layer depends only on the layers below it,
+ensuring clean dependency direction and modularity.
+</p>
+
+<table>
+<tr><th>Layer</th><th>Packages</th><th>Responsibility</th><th>Color</th></tr>
+<tr><td><strong>Application</strong></td><td>pyagent-coding-agent</td><td>CLI entry point, mode routing, built-in tools</td><td><span class="badge badge-purple">Application</span></td></tr>
+<tr><td><strong>Runtime</strong></td><td>pyagent-agent, pyagent-client</td><td>Agent state machine, tool loop, remote session</td><td><span class="badge badge-teal">Runtime</span></td></tr>
+<tr><td><strong>Foundation</strong></td><td>pyagent-ai, pyagent-tui, pyagent-protocol</td><td>LLM providers, terminal UI, message protocol</td><td><span class="badge badge-blue">Foundation</span></td></tr>
+<tr><td><strong>Infrastructure</strong></td><td>pyagent-server, pyagent-storage, pyagent-evals</td><td>HTTP server, SQLite persistence, evaluation</td><td><span class="badge badge-amber">Infrastructure</span></td></tr>
+</table>
+
+<h2 id="package-mapping">3. pi-mono to Python mapping</h2>
+<p>
+Each Python package maps to a TypeScript package in pi-mono, but uses Python-native technologies
+(LangChain instead of custom provider code, LangGraph instead of custom agent loop, Textual instead of custom TUI).
+</p>
+
+<table>
+<tr><th>pi-mono (TS)</th><th>PyAgent (Python)</th><th>Technology replacement</th></tr>
+<tr><td><code>packages/ai</code></td><td><code>packages/ai</code></td><td>Custom provider code &rarr; <strong>LangChain</strong> integrations</td></tr>
+<tr><td><code>packages/agent</code></td><td><code>packages/agent</code></td><td>Custom agent loop &rarr; <strong>LangGraph</strong> StateGraph</td></tr>
+<tr><td><code>packages/coding-agent</code></td><td><code>packages/coding_agent</code></td><td>commander + ink &rarr; <strong>typer + rich</strong></td></tr>
+<tr><td><code>packages/tui</code></td><td><code>packages/tui</code></td><td>Custom terminal renderer &rarr; <strong>Textual</strong></td></tr>
+<tr><td><code>packages/protocol</code></td><td><code>packages/protocol</code></td><td>zod types &rarr; <strong>Pydantic</strong> models + cbor2</td></tr>
+<tr><td><code>packages/client</code></td><td><code>packages/client</code></td><td>Custom WebSocket &rarr; <strong>httpx</strong> async</td></tr>
+<tr><td><code>packages/server</code></td><td><code>packages/server</code></td><td>Custom HTTP server &rarr; <strong>FastAPI + uvicorn</strong></td></tr>
+<tr><td><code>packages/storage/sqlite-node</code></td><td><code>packages/storage</code></td><td>better-sqlite3 &rarr; <strong>SQLModel + SQLite</strong></td></tr>
+<tr><td><code>packages/evals</code></td><td><code>packages/evals</code></td><td>Custom test runner &rarr; <strong>pytest-based</strong> framework</td></tr>
+</table>
+
+<h2 id="foundation">4. Foundation layer</h2>
+
+<h3>pyagent-ai <span class="badge badge-blue">Foundation</span></h3>
+<p>Unified LLM provider abstraction via LangChain. Provides a <code>ProviderConfig</code> that selects the backend
+(OpenAI, Anthropic, Google, Ollama) and returns a LangChain <code>BaseChatModel</code> instance.</p>
+
+<div class="card">
+<strong>Key files:</strong>
+<pre><code>packages/ai/src/pyagent_ai/
+  providers.py    # ProviderConfig + get_chat_model() factory
+  models.py       # MODEL_REGISTRY - 12 known models with metadata
+  streaming.py    # StreamHandler + StreamChunk</code></pre>
+<strong>Core API:</strong>
+<pre><code>from pyagent_ai import ProviderConfig, ProviderType, get_chat_model
+
+config = ProviderConfig(provider=ProviderType.OPENAI, model="gpt-4o-mini")
+model = get_chat_model(config)  # Returns ChatOpenAI instance
+
+# Supports invoke() and stream()
+response = model.invoke([{"role": "user", "content": "Hello"}])</code></pre>
+</div>
+
+<h3>pyagent-tui <span class="badge badge-blue">Foundation</span></h3>
+<p>Terminal UI built with <strong>Textual</strong>. Provides an interactive chat interface with message history,
+input box, and streaming response display.</p>
+
+<div class="card">
+<strong>Key files:</strong>
+<pre><code>packages/tui/src/pyagent_tui/
+  app.py      # AgentApp - main Textual App
+  widgets.py  # MessageWidget, ToolCallIndicator, StatusBar
+  screens.py  # HelpScreen (modal)</code></pre>
+</div>
+
+<h3>pyagent-protocol <span class="badge badge-blue">Foundation</span></h3>
+<p>Wire format for all communication. Uses <strong>Pydantic</strong> models for message types and
+<strong>cbor2</strong> for binary serialization (matching pi-mono's CBOR protocol).</p>
+
+<div class="card">
+<strong>Key types:</strong>
+<pre><code>from pyagent_protocol import Message, MessageRole, ToolCall, ToolResult
+from pyagent_protocol import SessionRequest, SessionResponse, SessionEvent
+from pyagent_protocol import serialize, deserialize
+
+# CBOR serialization
+msg = Message(role=MessageRole.USER, content="Hello")
+data = serialize(msg)      # bytes
+msg2 = deserialize(data, Message)  # Message</code></pre>
+</div>
+
+<h2 id="runtime">5. Runtime layer</h2>
+
+<h3>pyagent-agent <span class="badge badge-teal">Runtime</span></h3>
+<p>The core agent runtime. Uses <strong>LangGraph StateGraph</strong> to implement the ReAct pattern:
+reason &rarr; act (tool call) &rarr; observe (tool result) &rarr; loop.</p>
+
+<div class="card">
+<strong>Key files:</strong>
+<pre><code>packages/agent/src/pyagent_agent/
+  state.py     # AgentState (TypedDict) - messages, tools, iteration count
+  tools.py     # ToolRegistry + ToolSpec - tool registration and execution
+  nodes.py     # call_model, should_continue, execute_tools - graph nodes
+  graph.py     # build_agent_graph() - compiles the StateGraph
+  session.py   # AgentSession - high-level orchestration API</code></pre>
+<strong>Graph topology:</strong>
+<pre><code>START -> call_model -> should_continue
+                              |
+                    +---------+---------+
+                    |                   |
+                 "tools"             "__end__"
+                    |
+              execute_tools
+                    |
+                    v
+              call_model (loop back)</code></pre>
+<strong>Usage:</strong>
+<pre><code>from pyagent_agent import AgentSession, ToolRegistry
+
+session = AgentSession(model_config=config)
+session.register_tool("read_file", "Read a file", my_read_fn)
+response = session.run("What files are here?")</code></pre>
+</div>
+
+<h3>pyagent-client <span class="badge badge-teal">Runtime</span></h3>
+<p>Async remote session client using <strong>httpx</strong>. Connects to a pyagent-server instance
+and sends prompts over HTTP, supporting both blocking and streaming responses.</p>
+
+<div class="card">
+<strong>Core API:</strong>
+<pre><code>from pyagent_client import RemoteSession
+
+client = RemoteSession("http://localhost:8765")
+response = client.send_prompt("What is 2+2?")
+# Streaming
+for event in client.stream_prompt("List all files"):
+    print(event)</code></pre>
+</div>
+
+<h2 id="application">6. Application layer</h2>
+
+<h3>pyagent-coding-agent <span class="badge badge-purple">Application</span></h3>
+<p>The flagship CLI application. Provides three execution modes (mirrors pi-mono's coding-agent modes):</p>
+
+<ul style="margin-left: 24px; font-size: 15px;">
+  <li><strong>Pipe mode</strong>: single prompt &rarr; stdout (for scripting)</li>
+  <li><strong>Interactive mode</strong>: REPL loop with rich markdown rendering</li>
+  <li><strong>RPC mode</strong>: connect to a remote pyagent-server</li>
+</ul>
+
+<div class="card">
+<strong>Key files:</strong>
+<pre><code>packages/coding_agent/src/pyagent_coding_agent/
+  __main__.py     # Entry point (python -m pyagent_coding_agent)
+  cli.py          # typer CLI with all options
+  modes.py        # run_pipe_mode, run_interactive_mode, run_rpc_mode
+  tools/
+    file_ops.py   # read_file, write_file, list_directory, file_exists
+    shell.py      # run_command (subprocess with timeout)</code></pre>
+<strong>CLI usage:</strong>
+<pre><code># Pipe mode
+python -m pyagent_coding_agent "What files are here?"
+
+# Interactive mode
+python -m pyagent_coding_agent
+
+# Model selection
+python -m pyagent_coding_agent -m claude-3-5-sonnet -p anthropic "prompt"
+
+# RPC mode
+python -m pyagent_coding_agent --rpc http://localhost:8765 "prompt"
+
+# Disable tools
+python -m pyagent_coding_agent --no-tools "Just answer this question"</code></pre>
+</div>
+
+<h2 id="infrastructure">7. Infrastructure layer</h2>
+
+<h3>pyagent-server <span class="badge badge-amber">Infrastructure</span></h3>
+<p>FastAPI session server. Manages agent sessions, exposes REST endpoints, and supports NDJSON streaming.</p>
+
+<div class="card">
+<strong>Endpoints:</strong>
+<pre><code>GET  /api/health              # Health check
+POST /api/session              # Create/continue session
+POST /api/session/stream       # Stream events as NDJSON
+GET  /api/session/{id}         # Get session history</code></pre>
+</div>
+
+<h3>pyagent-storage <span class="badge badge-amber">Infrastructure</span></h3>
+<p>SQLite persistence using <strong>SQLModel</strong>. Three tables: sessions, messages, tool_results.</p>
+
+<div class="card">
+<strong>Schema:</strong>
+<pre><code>sessions (id, created_at, updated_at, system_prompt, model_provider, model_name, temperature)
+messages (id, session_id, role, content, name, tool_call_id, created_at, seq)
+tool_results (id, session_id, tool_call_id, tool_name, arguments, result, is_error, created_at)</code></pre>
+</div>
+
+<h3>pyagent-evals <span class="badge badge-amber">Infrastructure</span></h3>
+<p>Evaluation framework. Run prompts through the agent and assert on results.</p>
+
+<div class="card">
+<strong>Usage:</strong>
+<pre><code>from pyagent_evals import EvalRunner, EvalCase
+
+runner = EvalRunner(config=ProviderConfig(...))
+runner.add_case(EvalCase(
+    name="math",
+    prompt="What is 2+2?",
+    assert_fn=lambda r: "4" in r,
+))
+results = runner.run()
+EvalRunner.print_report(results)</code></pre>
+</div>
+
+<h2 id="data-flow">8. Agent data flow</h2>
+
+<p>The following diagram shows how a user prompt flows through the system:</p>
+
+<div class="flow">
+  <div class="flow-step">User prompt</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step">CLI parse</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step">Mode route</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step">AgentSession.run()</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step">create_initial_state()</div>
+</div>
+
+<div class="flow">
+  <div class="flow-step">LangGraph invoke</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step">call_model node</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step">LLM provider API</div>
+  <div class="flow-arrow">&rarr;</div>
+</div>
+
+<div class="flow">
+  <div class="flow-step">Tool calls?</div>
+  <div class="flow-arrow">&rarr; yes</div>
+  <div class="flow-step">execute_tools node</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step">loop back to call_model</div>
+</div>
+
+<div class="flow">
+  <div class="flow-step">Tool calls?</div>
+  <div class="flow-arrow">&rarr; no</div>
+  <div class="flow-step">END</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step">Extract assistant response</div>
+  <div class="flow-arrow">&rarr;</div>
+  <div class="flow-step">Render output</div>
+</div>
+
+<p style="margin-top: 16px;">
+<strong>Detailed steps:</strong>
+</p>
+<ol style="margin-left: 24px; font-size: 15px;">
+  <li><strong>User input</strong>: prompt arrives via CLI argument (pipe mode), REPL input (interactive mode), or HTTP POST (RPC mode)</li>
+  <li><strong>CLI parse</strong>: typer parses arguments, builds <code>ProviderConfig</code> from --model/--provider flags</li>
+  <li><strong>Mode route</strong>: <code>modes.py</code> selects pipe/interactive/rpc handler</li>
+  <li><strong>AgentSession.run()</strong>: creates <code>AgentState</code> with model, tools, system prompt, and history</li>
+  <li><strong>LangGraph invoke</strong>: compiled StateGraph executes the node sequence</li>
+  <li><strong>call_model</strong>: binds tools to the LangChain model, calls <code>model.invoke(messages)</code></li>
+  <li><strong>should_continue</strong>: checks if the last message has tool_calls and iteration count is under max</li>
+  <li><strong>execute_tools</strong>: runs each tool call via <code>ToolRegistry.execute()</code>, appends results as tool messages</li>
+  <li><strong>Loop</strong>: feeds results back into call_model for the next LLM turn</li>
+  <li><strong>Output</strong>: extracts the final assistant message, renders via rich markdown (interactive) or prints to stdout (pipe)</li>
+</ol>
+
+<h2 id="design-patterns">9. Design patterns</h2>
+
+<table>
+<tr><th>Pattern</th><th>Implementation</th><th>Location</th></tr>
+<tr><td><strong>Layered architecture</strong></td><td>4 layers, dependencies flow downward only</td><td>Project structure</td></tr>
+<tr><td><strong>State machine</strong></td><td>LangGraph StateGraph with TypedDict state</td><td>agent/state.py, graph.py</td></tr>
+<tr><td><strong>Factory</strong></td><td>ProviderConfig &rarr; get_chat_model() &rarr; LangChain model</td><td>ai/providers.py</td></tr>
+<tr><td><strong>Registry</strong></td><td>ToolRegistry: register/get/execute tools by name</td><td>agent/tools.py</td></tr>
+<tr><td><strong>Strategy</strong></td><td>3 modes (pipe/interactive/rpc) via mode functions</td><td>coding_agent/modes.py</td></tr>
+<tr><td><strong>ReAct loop</strong></td><td>Reason-Act-Observe cycle in LangGraph</td><td>agent/nodes.py</td></tr>
+<tr><td><strong>Repository</strong></td><td>SessionStore: CRUD for sessions/messages</td><td>storage/sqlite.py</td></tr>
+<tr><td><strong>Protocol/DTO</strong></td><td>Pydantic models + CBOR serialization</td><td>protocol/messages.py</td></tr>
+<tr><td><strong>Lazy init</strong></td><td>AgentSession._ensure_initialized()</td><td>agent/session.py</td></tr>
+<tr><td><strong>Decorator</strong></td><td>@tool decorator for tool registration</td><td>agent/tools.py</td></tr>
+</table>
+
+<h2 id="tech-stack">10. Technology stack</h2>
+
+<table>
+<tr><th>Category</th><th>Technology</th><th>pi-mono equivalent</th></tr>
+<tr><td>Agent runtime</td><td>LangGraph</td><td>Custom TypeScript agent loop</td></tr>
+<tr><td>LLM providers</td><td>LangChain + langchain-openai/anthropic/google</td><td>Custom provider code in pi-ai</td></tr>
+<tr><td>CLI framework</td><td>typer + rich</td><td>commander + ink</td></tr>
+<tr><td>Terminal UI</td><td>Textual</td><td>Custom terminal renderer</td></tr>
+<tr><td>Data validation</td><td>Pydantic v2</td><td>zod</td></tr>
+<tr><td>Serialization</td><td>cbor2</td><td>cbor-x</td></tr>
+<tr><td>HTTP server</td><td>FastAPI + uvicorn</td><td>Custom HTTP server</td></tr>
+<tr><td>HTTP client</td><td>httpx (async)</td><td>Custom WebSocket client</td></tr>
+<tr><td>Database</td><td>SQLModel + SQLite</td><td>better-sqlite3</td></tr>
+<tr><td>Testing/Evals</td><td>pytest</td><td>vitest</td></tr>
+<tr><td>Language</td><td>Python 3.11+</td><td>TypeScript 5.x</td></tr>
+</table>
+
+<h2 id="quickstart">11. Quick start</h2>
+
+<pre><code># 1. Create virtual environment
+cd D:\projects\pyagent
+python -m venv .venv
+source .venv/Scripts/activate  # Windows Git Bash
+
+# 2. Install all packages (editable mode)
+pip install -e packages/protocol -e packages/ai -e packages/agent \
+  -e packages/storage -e packages/coding_agent -e packages/tui \
+  -e packages/client -e packages/server -e packages/evals
+
+# Or use the dev setup script
+python scripts/dev_setup.py
+
+# 3. Set your API key
+export OPENAI_API_KEY="sk-..."
+
+# 4. Run the agent (pipe mode)
+python -m pyagent_coding_agent "List files in the current directory"
+
+# 5. Interactive mode
+python -m pyagent_coding_agent
+
+# 6. Use a different model/provider
+python -m pyagent_coding_agent -m claude-3-5-sonnet -p anthropic "prompt"
+
+# 7. Start the server (for RPC mode)
+python -c "from pyagent_server import app; app.run()" # or uvicorn
+# Then in another terminal:
+python -m pyagent_coding_agent --rpc http://localhost:8765 "prompt"
+</code></pre>
+
+<div class="card" style="margin-top: 32px;">
+  <p style="font-size: 13px; color: var(--text-tertiary); margin: 0;">
+    PyAgent v0.1.0 &mdash; Python AI coding agent harness<br>
+    Built with LangGraph + LangChain &mdash; Inspired by pi-mono<br>
+    9 packages | 4 layers | MIT License
+  </p>
+</div>
+
+</body>
+</html>

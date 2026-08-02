@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyagent-workspace"
+version = "0.1.0"
+description = "Python AI coding agent harness - workspace root"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+[project.optional-dependencies]
+dev = [
+    "pyagent-ai",
+    "pyagent-agent",
+    "pyagent-coding-agent",
+    "pyagent-tui",
+    "pyagent-protocol",
+    "pyagent-client",
+    "pyagent-server",
+    "pyagent-storage",
+    "pyagent-evals",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["packages/*/test"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
