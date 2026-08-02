@@ -35,7 +35,6 @@ def call_model(state: AgentState) -> dict[str, Any]:
     # Bind tools if available
     if tools_enabled:
         from langchain_core.tools import StructuredTool
-        from langchain_core.pydantic_v1 import BaseModel as LCPydanticBase
 
         # Convert our ToolSpec list to LangChain StructuredTools
         langchain_tools = []
