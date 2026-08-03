@@ -16,6 +16,7 @@ PyAgent provides a modular, multi-package architecture for building AI coding ag
 - **Session server** — FastAPI server with REST + NDJSON streaming endpoints
 - **Persistent storage** — SQLite-backed session store via SQLModel
 - **Evaluation framework** — Structured eval cases with assertions and rich report output
+- **LangSmith tracing** — Debug, monitor, and evaluate LLM calls via LangSmith (cloud SaaS or self-hosted Docker); automatic tracing of agent runs, LLM invocations, and tool executions with token usage, latency, and error metrics
 - **CBOR serialization** — Compact binary protocol with JSON fallback
 - **Error logging** — Runtime errors (with full tracebacks) are automatically written to a rotating error log file
 
@@ -152,6 +153,10 @@ or CI without editing the file.
 | `PYAGENT_DB_PATH` | `.pyagent/sessions.db` | SQLite database path for session storage |
 | `PYAGENT_ERROR_LOG_PATH` | `.pyagent/error.log` | Path to the runtime error log file (rotated) |
 | `PYAGENT_ERROR_LOG_LEVEL` | `ERROR` | Minimum log level written to the error log (e.g. `ERROR`, `WARNING`) |
+| `LANGSMITH_TRACING` | `false` | Set to `true` to enable LangSmith tracing of all LLM/agent calls |
+| `LANGSMITH_ENDPOINT` | `https://api.smith.langchain.com` | LangSmith API endpoint (cloud URL, or `http://localhost:1984` for self-hosted Docker) |
+| `LANGSMITH_API_KEY` | — | LangSmith API key (get it from https://smith.langchain.com/settings) |
+| `LANGSMITH_PROJECT` | `pyagent` | LangSmith project name where traces are grouped |
 
 ### Setting your API key
 
@@ -230,6 +235,109 @@ is rotated, with up to 3 backups kept (so the error log is bounded to roughly
 20 MB on disk). Override the location and level with the environment variables
 above, e.g. `PYAGENT_ERROR_LOG_PATH=logs/pyagent.err`. The `.gitignore` already
 excludes `*.log`, so error logs are never committed accidentally.
+
+### LangSmith tracing
+
+PyAgent integrates [LangSmith](https://smith.langchain.com) for debugging,
+monitoring, and evaluating LLM applications. When enabled, every agent run,
+LLM invocation, and tool execution is automatically captured as a nested
+trace in the LangSmith UI — including inputs, outputs, intermediate steps,
+token usage, latency, and error information.
+
+#### Enable tracing
+
+Set `LANGSMITH_TRACING=true` and provide your API key. The CLI initialises
+tracing automatically at startup via `pyagent_ai.init_tracing()`; if you
+embed PyAgent in another application, call `init_tracing()` once at startup
+(after `load_env()`).
+
+```dotenv
+# .env — LangSmith cloud SaaS
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+LANGSMITH_API_KEY=ls__your-api-key
+LANGSMITH_PROJECT=pyagent
+```
+
+#### Self-hosted / local Docker
+
+LangSmith can be self-hosted via Docker. Run the LangSmith stack locally
+(see the [deployment guide](https://github.com/langchain-ai/langsmith-sdk/blob/main/docker/README.md))
+and point `LANGSMITH_ENDPOINT` at it — typically `http://localhost:1984`.
+
+```dotenv
+# .env — self-hosted LangSmith (local Docker)
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=http://localhost:1984
+LANGSMITH_API_KEY=ls__your-local-key
+LANGSMITH_PROJECT=pyagent
+```
+
+#### What gets traced
+
+| Trace span | What it captures |
+|------------|------------------|
+| `agent-run` / `agent-run-async` / `agent-stream` | Top-level agent turn: session id, model, provider, total duration |
+| `llm-invoke` | Each LLM call: prompt messages, response, input/output/total tokens, latency |
+| `tool:<name>` | Each tool execution: tool name, args, result, duration |
+
+Trace metadata is injected for filtering in the LangSmith UI:
+`session_id`, `model`, `provider`, `input_tokens`, `output_tokens`,
+`total_tokens`, `total_duration_ms`, `tool_<name>_duration_ms`.
+
+#### Using the tracing API in code
+
+```python
+from pyagent_ai import init_tracing, traceable, trace_context, measure_latency, TraceMetadata
+
+# Initialise once at startup (reads LANGSMITH_* env vars)
+init_tracing()
+
+# Decorate any function to capture it as a LangSmith span
+@traceable(name="my-custom-step", tags=["custom"])
+def my_step(x: int) -> int:
+    return x + 1
+
+# Or wrap a code block with a context manager
+with trace_context("batch-processing", tags=["batch"]):
+    with measure_latency("batch_total") as metrics:
+        result = my_step(42)
+    # metrics["duration_ms"] now holds the elapsed time
+```
+
+#### Programmatic access to LangSmith
+
+```python
+from pyagent_ai import get_langsmith_client, get_project_runs, create_dataset
+
+# Fetch recent runs from your project
+runs = get_project_runs(limit=100)
+
+# Create an evaluation dataset programmatically
+create_dataset(
+    dataset_name="my-evals",
+    inputs=[{"input": "What is 2+2?"}],
+    outputs=[{"expected": "4"}],
+    description="Custom eval dataset",
+)
+```
+
+#### Key metrics monitored
+
+- **Token usage** — `input_tokens`, `output_tokens`, `total_tokens` per LLM call
+- **Response time** — `total_duration_ms` per agent run, `latency_llm_invoke_ms` per LLM call
+- **Success rate** — failed runs surface in the LangSmith UI with full error/traceback
+- **Tool performance** — `tool_<name>_duration_ms` per tool invocation
+
+#### Data analysis workflow
+
+1. Run the agent with tracing enabled: `pyagent "your prompt"`.
+2. Open the [LangSmith UI](https://smith.langchain.com) (or your local Docker console).
+3. Filter traces by `session_id`, `model`, `provider`, or tags.
+4. Drill into any trace to inspect: input messages, LLM responses, tool calls
+   & results, token counts, and timing breakdown.
+5. Use the built-in evaluation suite (`pyagent --eval`) to run regression
+   tests; results are uploaded to LangSmith for trend tracking.
 
 ### Supported models
 
@@ -311,6 +419,7 @@ Options:
   -s, --system TEXT    Custom system prompt.
   --no-tools           Disable tool calling.
   --max-iterations N   Maximum agent loop iterations. Default: 10
+  --eval               Run the LangSmith-integrated evaluation suite.
   --help               Show this message and exit.
 ```
 
@@ -480,6 +589,46 @@ results = runner.run()
 EvalRunner.print_report(results)
 ```
 
+#### LangSmith-integrated evaluation suite
+
+PyAgent ships a curated evaluation dataset (`pyagent_evals.langsmith_eval.EVAL_DATASET`)
+covering core capabilities: arithmetic, code generation, factual knowledge,
+and summarization. Run it with the `--eval` CLI flag, or programmatically:
+
+```bash
+# Run the built-in eval suite (uploads results to LangSmith if tracing is on)
+pyagent --eval
+
+# With a specific model
+pyagent --eval --provider deepseek --model deepseek-v4-flash
+```
+
+```python
+from pyagent_ai import ProviderConfig
+from pyagent_evals import run_langsmith_evals, compute_metrics
+
+# Run the full pipeline: upload dataset -> run evals -> compute metrics -> report
+result = run_langsmith_evals(
+    config=ProviderConfig(model="gpt-4o-mini"),
+    upload=True,  # upload the dataset to LangSmith
+)
+
+# result["results"]  -> list of per-case results (passed, duration, tokens, error)
+# result["metrics"]  -> aggregate metrics (success_rate, avg_duration_ms, category_breakdown)
+# result["dataset"]  -> the LangSmith dataset object (or None if not configured)
+
+print(result["metrics"]["success_rate"])
+```
+
+The eval suite reports these aggregate metrics:
+
+| Metric | Description |
+|--------|-------------|
+| `success_rate` | Fraction of passed cases |
+| `avg_duration_ms` | Mean response time across all cases |
+| `min_duration_ms` / `max_duration_ms` | Latency range |
+| `category_breakdown` | Per-category success rate (math, code_gen, knowledge, …) |
+
 ### 10. Terminal UI (pyagent-tui)
 
 ```python
@@ -544,7 +693,10 @@ pyagent/
 │   │   └── src/pyagent_ai/
 │   │       ├── providers.py     # ProviderConfig + get_chat_model factory
 │   │       ├── models.py        # Model registry (context windows, capabilities)
-│   │       └── streaming.py     # StreamChunk + StreamHandler
+│   │       ├── streaming.py     # StreamChunk + StreamHandler
+│   │       ├── tracing.py       # LangSmith tracing integration
+│   │       ├── env.py           # .env loading (python-dotenv)
+│   │       └── logging_config.py # Rotating error log handler
 │   ├── agent/               # pyagent-agent: LangGraph agent runtime
 │   │   └── src/pyagent_agent/
 │   │       ├── state.py        # AgentState TypedDict
@@ -565,6 +717,9 @@ pyagent/
 │   ├── server/              # pyagent-server: FastAPI session server
 │   ├── storage/             # pyagent-storage: SQLite session persistence
 │   └── evals/               # pyagent-evals: Evaluation framework
+│       └── src/pyagent_evals/
+│           ├── runner.py         # EvalCase + EvalRunner
+│           └── langsmith_eval.py # LangSmith-integrated eval dataset & runner
 ├── scripts/
 │   ├── dev_setup.sh         # Unix/Git Bash setup script
 │   └── dev_setup.py         # Cross-platform setup script
@@ -577,6 +732,7 @@ pyagent/
 
 - **Agent**: LangGraph (StateGraph, tool-calling loop)
 - **LLM**: LangChain + langchain-openai / langchain-anthropic / langchain-google-genai
+- **Tracing & evals**: LangSmith (debugging, monitoring, evaluation)
 - **CLI**: typer + rich
 - **TUI**: Textual
 - **Protocol**: Pydantic + cbor2

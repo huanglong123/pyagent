@@ -16,6 +16,7 @@ PyAgent 提供模块化的多包架构来构建 AI 编程 Agent。它支持多�
 - **会话服务器** — FastAPI 服务器，提供 REST + NDJSON 流式接口
 - **持久化存储** — 基于 SQLModel + SQLite 的会话存储
 - **评估框架** — 结构化测试用例，支持断言函数和富文本报告输出
+- **LangSmith 追踪** — 通过 LangSmith（云端 SaaS 或本地 Docker 自托管）调试、监控和评估 LLM 调用；自动追踪 Agent 运行、LLM 调用与工具执行，记录 Token 用量、延迟与错误指标
 - **CBOR 序列化** — 紧凑二进制协议，支持 JSON 回退
 - **运行错误日志** — 运行时错误（含完整 traceback）自动写入轮转错误日志文件
 
@@ -150,6 +151,10 @@ PyAgent 按以下优先级从高到低读取配置：
 | `PYAGENT_DB_PATH` | `.pyagent/sessions.db` | 会话存储的 SQLite 数据库路径 |
 | `PYAGENT_ERROR_LOG_PATH` | `.pyagent/error.log` | 运行错误日志文件路径（按大小轮转） |
 | `PYAGENT_ERROR_LOG_LEVEL` | `ERROR` | 写入错误日志的最低级别（如 `ERROR`、`WARNING`） |
+| `LANGSMITH_TRACING` | `false` | 设为 `true` 启用 LangSmith 追踪所有 LLM/Agent 调用 |
+| `LANGSMITH_ENDPOINT` | `https://api.smith.langchain.com` | LangSmith API 端点（云端 URL，或本地 Docker 自托管时为 `http://localhost:1984`） |
+| `LANGSMITH_API_KEY` | — | LangSmith API Key（从 https://smith.langchain.com/settings 获取） |
+| `LANGSMITH_PROJECT` | `pyagent` | LangSmith 项目名称，用于分组归类追踪数据 |
 
 ### 设置 API Key
 
@@ -211,6 +216,100 @@ PyAgent 会把运行时错误（LLM API 失败、工具执行异常、网络错�
 ```
 
 日志采用按大小轮转的 handler：每个文件增长到约 5 MB 后轮转，最多保留 3 个备份（错误日志总量大约限制在 20 MB 以内）。可通过上面的环境变量覆盖位置与级别，例如 `PYAGENT_ERROR_LOG_PATH=logs/pyagent.err`。`.gitignore` 已排除 `*.log`，错误日志不会被意外提交。
+
+### LangSmith 追踪
+
+PyAgent 集成了 [LangSmith](https://smith.langchain.com) 用于调试、监控和评估 LLM 应用。启用后，每次 Agent 运行、LLM 调用与工具执行都会自动作为嵌套追踪（trace）记录到 LangSmith 控制台 —— 包括输入输出、中间步骤、Token 用量、延迟与错误信息。
+
+#### 启用追踪
+
+设置 `LANGSMITH_TRACING=true` 并提供 API Key。CLI 会在启动时通过 `pyagent_ai.init_tracing()` 自动初始化追踪；若将 PyAgent 嵌入其他应用，请在启动时（`load_env()` 之后）调用一次 `init_tracing()`。
+
+```dotenv
+# .env — LangSmith 云端 SaaS
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+LANGSMITH_API_KEY=ls__your-api-key
+LANGSMITH_PROJECT=pyagent
+```
+
+#### 自托管 / 本地 Docker
+
+LangSmith 可通过 Docker 自托管。在本地运行 LangSmith 服务（参见
+[部署指南](https://github.com/langchain-ai/langsmith-sdk/blob/main/docker/README.md)），
+并将 `LANGSMITH_ENDPOINT` 指向它 —— 通常为 `http://localhost:1984`。
+
+```dotenv
+# .env — 自托管 LangSmith（本地 Docker）
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=http://localhost:1984
+LANGSMITH_API_KEY=ls__your-local-key
+LANGSMITH_PROJECT=pyagent
+```
+
+#### 追踪内容
+
+| 追踪 span | 记录内容 |
+|-----------|----------|
+| `agent-run` / `agent-run-async` / `agent-stream` | 顶层 Agent 轮次：会话 ID、模型、提供商、总耗时 |
+| `llm-invoke` | 每次 LLM 调用：提示消息、响应、输入/输出/总 Token 数、延迟 |
+| `tool:<name>` | 每次工具执行：工具名、参数、结果、耗时 |
+
+追踪元数据会注入用于在 LangSmith 控制台筛选：
+`session_id`、`model`、`provider`、`input_tokens`、`output_tokens`、
+`total_tokens`、`total_duration_ms`、`tool_<name>_duration_ms`。
+
+#### 在代码中使用追踪 API
+
+```python
+from pyagent_ai import init_tracing, traceable, trace_context, measure_latency, TraceMetadata
+
+# 启动时初始化一次（读取 LANGSMITH_* 环境变量）
+init_tracing()
+
+# 装饰任意函数，使其作为 LangSmith span 被捕获
+@traceable(name="my-custom-step", tags=["custom"])
+def my_step(x: int) -> int:
+    return x + 1
+
+# 或用上下文管理器包裹代码块
+with trace_context("batch-processing", tags=["batch"]):
+    with measure_latency("batch_total") as metrics:
+        result = my_step(42)
+    # metrics["duration_ms"] 现在持有耗时
+```
+
+#### 编程式访问 LangSmith
+
+```python
+from pyagent_ai import get_langsmith_client, get_project_runs, create_dataset
+
+# 获取项目最近的运行记录
+runs = get_project_runs(limit=100)
+
+# 编程式创建评估数据集
+create_dataset(
+    dataset_name="my-evals",
+    inputs=[{"input": "What is 2+2?"}],
+    outputs=[{"expected": "4"}],
+    description="自定义评估数据集",
+)
+```
+
+#### 监控的关键指标
+
+- **Token 用量** — 每次 LLM 调用的 `input_tokens`、`output_tokens`、`total_tokens`
+- **响应时间** — 每次 Agent 运行的 `total_duration_ms`，每次 LLM 调用的 `latency_llm_invoke_ms`
+- **成功率** — 失败的运行会在 LangSmith 控制台显示完整错误/traceback
+- **工具性能** — 每次工具调用的 `tool_<name>_duration_ms`
+
+#### 数据分析流程
+
+1. 启用追踪后运行 Agent：`pyagent "your prompt"`。
+2. 打开 [LangSmith 控制台](https://smith.langchain.com)（或本地 Docker 控制台）。
+3. 按 `session_id`、`model`、`provider` 或 tag 筛选追踪记录。
+4. 下钻查看任意追踪：输入消息、LLM 响应、工具调用与结果、Token 数量、耗时分解。
+5. 使用内置评估套件（`pyagent --eval`）运行回归测试；结果会上传到 LangSmith 用于趋势追踪。
 
 ### 支持的模型
 
@@ -292,6 +391,7 @@ pyagent [PROMPT] [OPTIONS]
   -s, --system TEXT    自定义系统提示词。
   --no-tools           禁用工具调用。
   --max-iterations N   Agent 循环最大迭代次数。默认：10
+  --eval               运行 LangSmith 集成的评估套件。
   --help               显示帮助信息并退出。
 ```
 
@@ -461,6 +561,46 @@ results = runner.run()
 EvalRunner.print_report(results)
 ```
 
+#### LangSmith 集成的评估套件
+
+PyAgent 内置了一个精选评估数据集（`pyagent_evals.langsmith_eval.EVAL_DATASET`），
+覆盖核心能力：算术、代码生成、事实知识、摘要。通过 `--eval` CLI 参数运行，
+或编程式调用：
+
+```bash
+# 运行内置评估套件（若开启追踪，结果会上传到 LangSmith）
+pyagent --eval
+
+# 指定模型
+pyagent --eval --provider deepseek --model deepseek-v4-flash
+```
+
+```python
+from pyagent_ai import ProviderConfig
+from pyagent_evals import run_langsmith_evals, compute_metrics
+
+# 完整流程：上传数据集 -> 运行评估 -> 计算指标 -> 输出报告
+result = run_langsmith_evals(
+    config=ProviderConfig(model="gpt-4o-mini"),
+    upload=True,  # 上传数据集到 LangSmith
+)
+
+# result["results"]  -> 每个用例的结果列表（passed、duration、tokens、error）
+# result["metrics"]  -> 聚合指标（success_rate、avg_duration_ms、category_breakdown）
+# result["dataset"]  -> LangSmith 数据集对象（未配置时为 None）
+
+print(result["metrics"]["success_rate"])
+```
+
+评估套件输出的聚合指标：
+
+| 指标 | 描述 |
+|------|------|
+| `success_rate` | 通过的用例比例 |
+| `avg_duration_ms` | 所有用例的平均响应时间 |
+| `min_duration_ms` / `max_duration_ms` | 延迟范围 |
+| `category_breakdown` | 分类别成功率（math、code_gen、knowledge 等） |
+
 ### 10. 终端界面（pyagent-tui）
 
 ```python
@@ -525,7 +665,10 @@ pyagent/
 │   │   └── src/pyagent_ai/
 │   │       ├── providers.py     # ProviderConfig + get_chat_model 工厂
 │   │       ├── models.py        # 模型注册表（上下文窗口、能力）
-│   │       └── streaming.py     # StreamChunk + StreamHandler
+│   │       ├── streaming.py     # StreamChunk + StreamHandler
+│   │       ├── tracing.py       # LangSmith 追踪集成
+│   │       ├── env.py           # .env 加载（python-dotenv）
+│   │       └── logging_config.py # 轮转错误日志 handler
 │   ├── agent/               # pyagent-agent: LangGraph Agent 运行时
 │   │   └── src/pyagent_agent/
 │   │       ├── state.py        # AgentState TypedDict
@@ -546,6 +689,9 @@ pyagent/
 │   ├── server/              # pyagent-server: FastAPI 会话服务器
 │   ├── storage/             # pyagent-storage: SQLite 会话持久化
 │   └── evals/               # pyagent-evals: 评估框架
+│       └── src/pyagent_evals/
+│           ├── runner.py         # EvalCase + EvalRunner
+│           └── langsmith_eval.py # LangSmith 集成的评估数据集与运行器
 ├── scripts/
 │   ├── dev_setup.sh         # Unix/Git Bash 安装脚本
 │   └── dev_setup.py         # 跨平台安装脚本
@@ -558,6 +704,7 @@ pyagent/
 
 - **Agent**：LangGraph（StateGraph，工具调用循环）
 - **LLM**：LangChain + langchain-openai / langchain-anthropic / langchain-google-genai
+- **追踪与评估**：LangSmith（调试、监控、评估）
 - **CLI**：typer + rich
 - **TUI**：Textual
 - **协议**：Pydantic + cbor2

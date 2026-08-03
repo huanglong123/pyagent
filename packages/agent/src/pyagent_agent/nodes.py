@@ -8,6 +8,9 @@ These are the core building blocks of the agent graph:
 
 This mirrors pi-mono's agent loop in packages/agent which alternates
 between LLM calls and tool execution until the LLM stops requesting tools.
+
+LangSmith tracing is integrated at the node level so that every LLM
+invocation and tool execution appears as a nested span in the trace tree.
 """
 
 from __future__ import annotations
@@ -21,11 +24,32 @@ from pyagent_agent.state import AgentState
 logger = logging.getLogger(__name__)
 
 
+def _is_tracing_enabled() -> bool:
+    """Check if LangSmith tracing is currently enabled."""
+    try:
+        from pyagent_ai.tracing import get_config
+        return get_config().enabled
+    except Exception:
+        return False
+
+
+def _safe_get_current_metadata() -> dict[str, Any]:
+    """Safely get current trace metadata (no-op if tracing disabled)."""
+    try:
+        from pyagent_ai.tracing import current_metadata
+        return current_metadata()
+    except Exception:
+        return {}
+
+
 def call_model(state: AgentState) -> dict[str, Any]:
     """Call the LLM with the current conversation history.
 
     If tools are registered, binds them to the model for function calling.
     Returns updated messages list with the LLM's response appended.
+
+    When LangSmith tracing is active, this function is wrapped in a
+    traceable span and latency / token metrics are recorded.
     """
     model = state["model"]
     messages = state.get("messages", [])
@@ -52,8 +76,22 @@ def call_model(state: AgentState) -> dict[str, Any]:
         except Exception as e:
             logger.warning("Failed to bind tools: %s", e)
 
-    # Invoke the model
-    response = model.invoke(messages)
+    # Invoke the model with tracing
+    tracing_on = _is_tracing_enabled()
+
+    if tracing_on:
+        from langsmith.run_helpers import traceable
+        from pyagent_ai.tracing import measure_latency
+
+        @traceable(name="llm-invoke", tags=["llm"])
+        def _invoke(msgs: list[Any]) -> Any:
+            with measure_latency("llm_invoke"):
+                resp = model.invoke(msgs)
+            return resp
+
+        response = _invoke(messages)
+    else:
+        response = model.invoke(messages)
 
     # Convert response to message dict
     if hasattr(response, "content"):
@@ -79,6 +117,18 @@ def call_model(state: AgentState) -> dict[str, Any]:
                     "name": tc.get("name", ""),
                     "args": tc.get("args", {}),
                 })
+
+        # Record token usage if available
+        if tracing_on and hasattr(response, "usage_metadata") and response.usage_metadata:
+            try:
+                meta = _safe_get_current_metadata()
+                usage = response.usage_metadata
+                meta["input_tokens"] = usage.get("input_tokens", 0)
+                meta["output_tokens"] = usage.get("output_tokens", 0)
+                meta["total_tokens"] = usage.get("total_tokens", 0)
+            except Exception:
+                pass
+
         msg_dict: dict[str, Any] = {"role": "assistant", "content": content}
         if tool_calls:
             msg_dict["tool_calls"] = tool_calls
@@ -119,6 +169,9 @@ def execute_tools(state: AgentState) -> dict[str, Any]:
 
     Appends tool result messages to the conversation history.
     Increments the iteration counter.
+
+    When LangSmith tracing is active, each tool execution is wrapped
+    in a traceable span so individual tool calls appear in the trace tree.
     """
     messages = state.get("messages", [])
     tools = state.get("tools")
@@ -130,6 +183,8 @@ def execute_tools(state: AgentState) -> dict[str, Any]:
     last_msg = messages[-1]
     tool_calls = last_msg.get("tool_calls", [])
 
+    tracing_on = _is_tracing_enabled()
+
     tool_results = []
     for tc in tool_calls:
         tool_name = tc.get("name", "")
@@ -139,7 +194,24 @@ def execute_tools(state: AgentState) -> dict[str, Any]:
         tool_call_id = tc.get("id", "")
 
         logger.info("Executing tool: %s with args: %s", tool_name, tool_args)
-        result = tools.execute(tool_name, tool_args)
+
+        if tracing_on:
+            from langsmith.run_helpers import traceable
+            from pyagent_ai.tracing import measure_latency
+
+            @traceable(name=f"tool:{tool_name}", tags=["tool", tool_name])
+            def _execute_tool(name: str, args: dict[str, Any]) -> str:
+                with measure_latency(f"tool_{name}") as metrics:
+                    result = tools.execute(name, args)
+                # Record tool duration
+                meta = _safe_get_current_metadata()
+                meta[f"tool_{name}_duration_ms"] = metrics["duration_ms"]
+                return result
+
+            result = _execute_tool(tool_name, tool_args)
+        else:
+            result = tools.execute(tool_name, tool_args)
+
         tool_results.append(result)
 
         messages.append({

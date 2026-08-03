@@ -28,6 +28,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 
 from pyagent_ai import ProviderConfig, ProviderType, load_env, setup_error_logging
+from pyagent_ai.tracing import init_tracing
 from pyagent_coding_agent.modes import run_pipe_mode, run_interactive_mode, run_rpc_mode
 
 app = typer.Typer(
@@ -112,6 +113,9 @@ def main(
     max_iterations: int = typer.Option(
         10, "--max-iterations", help="Maximum agent loop iterations."
     ),
+    eval_mode: bool = typer.Option(
+        False, "--eval", help="Run LangSmith-integrated evaluation suite."
+    ),
 ) -> None:
     """Run the PyAgent coding agent."""
 
@@ -125,6 +129,25 @@ def main(
     # as a safety net for any crash not caught by the mode handlers.
     setup_error_logging()
     _install_excepthook()
+
+    # Initialise LangSmith tracing (no-op if LANGSMITH_TRACING is not true).
+    # This wires up automatic tracing of all LangChain / LangGraph calls.
+    init_tracing()
+
+    # Evaluation mode: run the LangSmith-integrated evaluation suite
+    if eval_mode:
+        console.print(
+            Panel(
+                "[bold cyan]PyAgent Evaluation Suite[/]\n"
+                "[dim]Running LangSmith-integrated evals...[/]",
+                border_style="cyan",
+            )
+        )
+        from pyagent_evals import run_langsmith_evals
+
+        eval_config = _build_config(model, provider, temperature)
+        run_langsmith_evals(config=eval_config, upload=True)
+        return
 
     # Show banner
     console.print(
